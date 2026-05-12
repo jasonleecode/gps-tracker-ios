@@ -18,6 +18,7 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     @Published var path: [CLLocation] = []
     @Published var pois: [PointOfInterest] = []
     @Published var isRecording: Bool = false
+    @Published var totalDistance: Double = 0 // in meters
     
     override init() {
         super.init()
@@ -46,16 +47,27 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     func clearAll() {
         path = []
         pois = []
+        totalDistance = 0
         isRecording = false
     }
     
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let location = locations.last else { return }
-        self.location = location
         
         if isRecording {
-            self.path.append(location)
+            if let lastLocation = path.last {
+                let distance = location.distance(from: lastLocation)
+                // Filter out small jitters/noise
+                if distance > 2 {
+                    totalDistance += distance
+                    self.path.append(location)
+                }
+            } else {
+                self.path.append(location)
+            }
         }
+        
+        self.location = location
     }
     
     func exportAsGPX() -> String {

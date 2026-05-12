@@ -132,14 +132,21 @@ struct ContentView: View {
                         
                         Divider()
                         
-                        HStack(spacing: 20) {
-                            StatBox(label: "Speed", value: String(format: "%.1f km/h", (location.speed > 0 ? location.speed : 0) * 3.6))
-                            StatBox(label: "Altitude", value: String(format: "%.0f m", location.altitude))
-                            StatBox(label: "Points", value: "\(locationManager.path.count)")
+                        // Main Stats Grid
+                        VStack(spacing: 12) {
+                            HStack(spacing: 15) {
+                                StatBox(label: "Speed", value: String(format: "%.1f km/h", (location.speed > 0 ? location.speed : 0) * 3.6))
+                                StatBox(label: "Altitude", value: String(format: "%.0f m", location.altitude))
+                            }
+                            HStack(spacing: 15) {
+                                StatBox(label: "Distance", value: formatDistance(locationManager.totalDistance))
+                                StatBox(label: "Points", value: "\(locationManager.path.count)")
+                            }
                         }
                         
                         Divider()
                         
+                        // Coordinates
                         HStack {
                             VStack(alignment: .leading) {
                                 Text("Latitude")
@@ -169,6 +176,14 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showSatelliteStatus) {
             SatelliteStatusView(location: locationManager.location)
+        }
+    }
+    
+    private func formatDistance(_ meters: Double) -> String {
+        if meters < 1000 {
+            return String(format: "%.0f m", meters)
+        } else {
+            return String(format: "%.2f km", meters / 1000)
         }
     }
 }

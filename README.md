@@ -8,7 +8,8 @@ A modern, real-time GPS tracking application built with SwiftUI and MapKit. This
 - **Map Integration**: Interactive MapKit interface with user location tracking, compass, and scale.
 - **Recording Controls**: Start and stop tracking whenever you want to save battery or manage track segments.
 - **Points of Interest (POI)**: Mark specific locations with a single tap. POIs are displayed on the map and saved in the export.
-- **Live Stats**: Monitor current speed (km/h), altitude (m), and the number of recorded points in real-time.
+- **Live Stats**: Monitor current speed (km/h), altitude (m), total distance, and the number of recorded points in real-time.
+- **Odometer**: Cumulative distance calculation for your track with smart noise filtering.
 - **GPS Status Monitor**: Detailed view of signal accuracy, vertical accuracy, course, and signal quality indicator.
 - **GPX Export**: Export your recorded tracks and waypoints as standardized `.gpx` files for use in Google Earth, Strava, or other GIS tools.
 - **Modern UI**: Clean, glassmorphism design using SwiftUI's `.ultraThinMaterial`.
