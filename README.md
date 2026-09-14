@@ -35,7 +35,8 @@ A modern, real-time GPS tracking application built with SwiftUI and MapKit. This
 ### Permissions
 The app requires the following permissions to function:
 - `NSLocationWhenInUseUsageDescription`: Required to show and track your location while using the app.
-- `NSLocationAlwaysAndWhenInUseUsageDescription`: Required for background tracking (if configured).
+- `NSLocationAlwaysAndWhenInUseUsageDescription`: Required for background tracking.
+- `UIBackgroundModes` (`location`): Declared in `Info.plist` so tracking continues when the app is in the background.
 
 ## 🛠 Tech Stack
 - **SwiftUI**: Modern declarative UI framework.
