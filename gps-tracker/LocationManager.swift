@@ -14,12 +14,25 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     private let locationManager = CLLocationManager()
     
     @Published var location: CLLocation?
+    @Published var heading: CLHeading?
     @Published var authorizationStatus: CLAuthorizationStatus?
     @Published var path: [CLLocation] = []
     @Published var pois: [PointOfInterest] = []
     @Published var isRecording: Bool = false
     @Published var totalDistance: Double = 0 // in meters
-    
+
+    // Direction of travel in degrees from north: GPS course while moving, compass heading when stationary
+    var movementDirection: Double? {
+        if let location, location.speed > 1, location.course >= 0 {
+            return location.course
+        }
+        if let heading {
+            if heading.trueHeading >= 0 { return heading.trueHeading }
+            if heading.magneticHeading >= 0 { return heading.magneticHeading }
+        }
+        return nil
+    }
+
     override init() {
         super.init()
         locationManager.delegate = self
@@ -30,6 +43,7 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         locationManager.showsBackgroundLocationIndicator = true
         locationManager.requestWhenInUseAuthorization()
         locationManager.startUpdatingLocation()
+        locationManager.startUpdatingHeading()
     }
     
     func toggleRecording() {
@@ -73,6 +87,32 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         self.location = location
     }
     
+    private var lastExportSignature: (pathCount: Int, poiCount: Int)?
+    private var lastExportURL: URL?
+
+    // Writes the GPX to a temp file named with the current date and time.
+    // Memoized on the data signature so view re-renders don't rewrite the file.
+    func exportAsGPXFile() -> URL? {
+        if let lastExportURL, let sig = lastExportSignature,
+           sig.pathCount == path.count, sig.poiCount == pois.count,
+           FileManager.default.fileExists(atPath: lastExportURL.path) {
+            return lastExportURL
+        }
+
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd_HH-mm-ss"
+        let url = URL.temporaryDirectory.appendingPathComponent("Track_\(formatter.string(from: Date())).gpx")
+
+        do {
+            try exportAsGPX().write(to: url, atomically: true, encoding: .utf8)
+        } catch {
+            return nil
+        }
+        lastExportSignature = (path.count, pois.count)
+        lastExportURL = url
+        return url
+    }
+
     func exportAsGPX() -> String {
         var gpx = """
         <?xml version="1.0" encoding="UTF-8"?>
@@ -125,6 +165,10 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         return gpx
     }
     
+    func locationManager(_ manager: CLLocationManager, didUpdateHeading newHeading: CLHeading) {
+        heading = newHeading
+    }
+
     func locationManager(_ manager: CLLocationManager, didChangeAuthorization status: CLAuthorizationStatus) {
         self.authorizationStatus = status
         if status == .authorizedWhenInUse {
