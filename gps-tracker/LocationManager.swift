@@ -177,7 +177,7 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     func exportAsGPX() -> String {
         var gpx = """
         <?xml version="1.0" encoding="UTF-8"?>
-        <gpx version="1.1" creator="GPS Tracker iOS" xmlns="http://www.topografix.com/GPX/1/1">
+        <gpx version="1.1" creator="GPS Tracker iOS" xmlns="http://www.topografix.com/GPX/1/1" xmlns:gpxtpx="http://www.garmin.com/xmlschemas/TrackPointExtension/v1">
         """
         
         let dateFormatter = ISO8601DateFormatter()
@@ -212,7 +212,9 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
                 <ele>\(ele)</ele>
                 <time>\(time)</time>
                 <extensions>
-                  <speed>\(speed)</speed>
+                  <gpxtpx:TrackPointExtension>
+                    <gpxtpx:speed>\(speed)</gpxtpx:speed>
+                  </gpxtpx:TrackPointExtension>
                 </extensions>
               </trkpt>
             """
