@@ -5,6 +5,7 @@ A modern, real-time GPS tracking application built with SwiftUI and MapKit. This
 ## ✨ Features
 
 - **Real-time Tracking**: Precise location tracking using CoreLocation with smooth path rendering on the map.
+- **Speed-Colored Track**: The recorded path is drawn as speed-based gradient segments — slow sections in red, fast sections in blue.
 - **Map Integration**: Interactive MapKit interface with user location tracking, compass, and scale.
 - **Recording Controls**: Start and stop tracking whenever you want to save battery or manage track segments.
 - **Points of Interest (POI)**: Mark specific locations with a single tap. POIs are displayed on the map and saved in the export.

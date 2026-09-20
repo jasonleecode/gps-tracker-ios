@@ -10,13 +10,25 @@ struct PointOfInterest: Identifiable {
     let altitude: Double
 }
 
+// A run of consecutive track points with similar speed, drawn as one
+// polyline. speedFraction is 0 for the slowest and 1 for the fastest
+// speed in the current track. Coordinates are pre-converted to GCJ-02
+// (the tile system Apple Maps uses in China), ready for display.
+struct TrackSegment {
+    var coordinates: [CLLocationCoordinate2D]
+    var speedFraction: Double
+}
+
 class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     private let locationManager = CLLocationManager()
     
     @Published var location: CLLocation?
     @Published var heading: CLHeading?
     @Published var authorizationStatus: CLAuthorizationStatus?
-    @Published var path: [CLLocation] = []
+    @Published var path: [CLLocation] = [] {
+        didSet { rebuildTrackSegments() }
+    }
+    @Published var trackSegments: [TrackSegment] = []
     @Published var pois: [PointOfInterest] = []
     @Published var isRecording: Bool = false
     @Published var totalDistance: Double = 0 // in meters
@@ -67,6 +79,41 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         pois = []
         totalDistance = 0
         isRecording = false
+    }
+
+    // Rebuilds the speed-colored segments shown on the map. Consecutive points
+    // with similar speed are merged into one polyline to keep the polyline
+    // count (and map rendering cost) low. Speed is normalized against the
+    // current track's own min/max so the full red→blue range is always used.
+    private func rebuildTrackSegments() {
+        guard path.count > 1 else {
+            trackSegments = []
+            return
+        }
+        let speeds = path.map { max($0.speed, 0) }
+        let minSpeed = speeds.min() ?? 0
+        let maxSpeed = speeds.max() ?? 0
+        let range = maxSpeed - minSpeed
+
+        let bucketCount = 20.0
+        var segments: [TrackSegment] = []
+        var lastBucket = -1.0
+
+        for i in 0..<(path.count - 1) {
+            let speed = (speeds[i] + speeds[i + 1]) / 2
+            let fraction = range > 0.1 ? (speed - minSpeed) / range : 0.5
+            let bucket = (fraction * bucketCount).rounded() / bucketCount
+
+            let next = CoordinateConverter.wgs84ToGcj02(path[i + 1].coordinate)
+            if bucket == lastBucket, !segments.isEmpty {
+                segments[segments.count - 1].coordinates.append(next)
+            } else {
+                let start = CoordinateConverter.wgs84ToGcj02(path[i].coordinate)
+                segments.append(TrackSegment(coordinates: [start, next], speedFraction: bucket))
+                lastBucket = bucket
+            }
+        }
+        trackSegments = segments
     }
     
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {

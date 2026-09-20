@@ -42,9 +42,9 @@ struct ContentView: View {
                     UserAnnotation()
                 }
 
-                if locationManager.path.count > 1 {
-                    MapPolyline(coordinates: locationManager.path.map { CoordinateConverter.wgs84ToGcj02($0.coordinate) })
-                        .stroke(.orange, lineWidth: 5)
+                ForEach(Array(locationManager.trackSegments.enumerated()), id: \.offset) { _, segment in
+                    MapPolyline(coordinates: segment.coordinates)
+                        .stroke(speedColor(segment.speedFraction), lineWidth: 5)
                 }
 
                 ForEach(locationManager.pois) { poi in
@@ -89,6 +89,11 @@ struct ContentView: View {
 
     // Follow mode drives the camera manually instead of using .userLocation(followsHeading:),
     // because that camera mode renders the system blue dot on top of our arrow annotation.
+    // Maps a 0...1 speed fraction to a hue: 0 (slowest) is red, 1 (fastest) is blue.
+    private func speedColor(_ fraction: Double) -> Color {
+        Color(hue: 2.0 / 3.0 * fraction, saturation: 0.85, brightness: 0.95)
+    }
+
     private func followCamera(to location: CLLocation) {
         position = .camera(MapCamera(
             centerCoordinate: CoordinateConverter.wgs84ToGcj02(location.coordinate),
