@@ -26,7 +26,7 @@ struct ContentView: View {
                     // Keyed by timestamp so SwiftUI recreates the annotation on every
                     // location update — a plain Annotation keeps its initial coordinate.
                     ForEach([location], id: \.timestamp) { loc in
-                        Annotation("", coordinate: loc.coordinate) {
+                        Annotation("", coordinate: CoordinateConverter.wgs84ToGcj02(loc.coordinate)) {
                             Image(systemName: "location.north.fill")
                                 .font(.system(size: 14, weight: .bold))
                                 .foregroundColor(.white)
@@ -43,12 +43,12 @@ struct ContentView: View {
                 }
 
                 if locationManager.path.count > 1 {
-                    MapPolyline(coordinates: locationManager.path.map { $0.coordinate })
+                    MapPolyline(coordinates: locationManager.path.map { CoordinateConverter.wgs84ToGcj02($0.coordinate) })
                         .stroke(.orange, lineWidth: 5)
                 }
 
                 ForEach(locationManager.pois) { poi in
-                    Marker(poi.name, systemImage: "mappin.and.ellipse", coordinate: poi.coordinate)
+                    Marker(poi.name, systemImage: "mappin.and.ellipse", coordinate: CoordinateConverter.wgs84ToGcj02(poi.coordinate))
                         .tint(.orange)
                 }
             }
@@ -91,7 +91,7 @@ struct ContentView: View {
     // because that camera mode renders the system blue dot on top of our arrow annotation.
     private func followCamera(to location: CLLocation) {
         position = .camera(MapCamera(
-            centerCoordinate: location.coordinate,
+            centerCoordinate: CoordinateConverter.wgs84ToGcj02(location.coordinate),
             distance: cameraDistance,
             heading: locationManager.movementDirection ?? cameraHeading
         ))
