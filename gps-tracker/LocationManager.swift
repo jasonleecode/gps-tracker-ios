@@ -20,6 +20,7 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     @Published var pois: [PointOfInterest] = []
     @Published var isRecording: Bool = false
     @Published var totalDistance: Double = 0 // in meters
+    @Published var accuracyAuthorization: CLAccuracyAuthorization = .fullAccuracy
 
     // Direction of travel in degrees from north: GPS course while moving, compass heading when stationary
     var movementDirection: Double? {
@@ -70,7 +71,22 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let location = locations.last else { return }
-        
+
+        // Reject stale cached fixes — CoreLocation delivers a cached location
+        // immediately on start, which can be minutes old and kilometers off.
+        let age = -location.timestamp.timeIntervalSinceNow
+        guard age < 5 else { return }
+
+        // Always show the freshest valid fix so the map never looks dead,
+        // even while GPS is still warming up (indoors, cold start).
+        guard location.horizontalAccuracy >= 0 else { return }
+        self.location = location
+
+        // Recording is stricter: skip very coarse fixes (cell tower / Wi-Fi
+        // triangulation can be hundreds of meters off while GPS warms up),
+        // otherwise the track starts with a long jump from a wrong point.
+        guard location.horizontalAccuracy <= 50 else { return }
+
         if isRecording {
             if let lastLocation = path.last {
                 let distance = location.distance(from: lastLocation)
@@ -83,8 +99,6 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
                 self.path.append(location)
             }
         }
-        
-        self.location = location
     }
     
     private var lastExportSignature: (pathCount: Int, poiCount: Int)?
@@ -171,8 +185,20 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
 
     func locationManager(_ manager: CLLocationManager, didChangeAuthorization status: CLAuthorizationStatus) {
         self.authorizationStatus = status
+        self.accuracyAuthorization = manager.accuracyAuthorization
         if status == .authorizedWhenInUse {
             locationManager.requestAlwaysAuthorization()
+        }
+    }
+
+    // Asks the user to turn on Precise Location if they granted only reduced
+    // accuracy (reduced accuracy is ~1–2 km, which looks "定位不准").
+    func requestTemporaryFullAccuracy() {
+        guard locationManager.accuracyAuthorization == .reducedAccuracy else { return }
+        locationManager.requestTemporaryFullAccuracyAuthorization(withPurposeKey: "Tracking") { [weak self] _ in
+            DispatchQueue.main.async {
+                self?.accuracyAuthorization = self?.locationManager.accuracyAuthorization ?? .reducedAccuracy
+            }
         }
     }
     

@@ -61,6 +61,9 @@ struct ContentView: View {
                 cameraHeading = context.camera.heading
                 cameraDistance = context.camera.distance
             }
+            // Full-bleed map, but keep the map controls (user location button,
+            // compass, scale) below the status bar so they don't overlap it.
+            .safeAreaPadding(.top, 60)
             .ignoresSafeArea()
 
             if isLandscape {
@@ -70,7 +73,7 @@ struct ContentView: View {
             }
         }
         .sheet(isPresented: $showSatelliteStatus) {
-            SatelliteStatusView(location: locationManager.location)
+            SatelliteStatusView(locationManager: locationManager)
         }
         .onChange(of: locationManager.isRecording) { _, recording in
             if recording { applyTrackingMode() }
@@ -324,12 +327,24 @@ struct ContentView: View {
 }
 
 struct SatelliteStatusView: View {
-    let location: CLLocation?
+    @ObservedObject var locationManager: LocationManager
     @Environment(\.dismiss) var dismiss
+
+    private var location: CLLocation? { locationManager.location }
 
     var body: some View {
         NavigationView {
             List {
+                if locationManager.accuracyAuthorization == .reducedAccuracy {
+                    Section {
+                        Label("Precise Location is off — accuracy is limited to ~1–2 km.", systemImage: "exclamationmark.triangle.fill")
+                            .foregroundColor(.orange)
+                        Button("Enable Precise Location") {
+                            locationManager.requestTemporaryFullAccuracy()
+                        }
+                    }
+                }
+
                 if let location = location {
                     Section("Signal Quality") {
                         HStack {
