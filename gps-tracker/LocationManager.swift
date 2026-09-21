@@ -151,7 +151,7 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     private var lastExportSignature: (pathCount: Int, poiCount: Int)?
     private var lastExportURL: URL?
 
-    // Writes the GPX to a temp file named like "track 2025-08-17 104411.gpx".
+    // Writes the GPX to a temp file named like "track 2025-08-17 134111.gpx".
     // Memoized on the data signature so view re-renders don't rewrite the file.
     func exportAsGPXFile() -> URL? {
         if let lastExportURL, let sig = lastExportSignature,
@@ -160,7 +160,7 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
             return lastExportURL
         }
 
-        let url = URL.temporaryDirectory.appendingPathComponent("\(trackName()).gpx")
+        let url = URL.temporaryDirectory.appendingPathComponent("\(trackFileName()).gpx")
 
         do {
             try exportAsGPX().write(to: url, atomically: true, encoding: .utf8)
@@ -172,48 +172,59 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         return url
     }
 
-    private func trackName() -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd HHmmss"
-        return "track \(formatter.string(from: Date()))"
+    // The track is named after when recording started, not when it is exported.
+    private func trackStartDate() -> Date {
+        path.first?.timestamp ?? Date()
     }
 
-    // GPX 1.1 in the shape produced by Open GPX Tracker / gpx.studio:
-    // metadata with the track name, waypoints with ele/time/name/desc,
-    // and a track whose points carry only ele and time.
+    // "track 2025-08-17 13:41:11" — shown inside the GPX as the track name.
+    private func trackName() -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        return "track \(formatter.string(from: trackStartDate()))"
+    }
+
+    // "track 2025-08-17 134111" — colons are dropped for the file name.
+    private func trackFileName() -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd HHmmss"
+        return "track \(formatter.string(from: trackStartDate()))"
+    }
+
+    // GPX 1.1 in the shape produced by the "GPS Tracker, Offline Maps" app:
+    // metadata with the recording start time, and track points carrying
+    // ele, speed, and time as direct child elements.
     func exportAsGPX() -> String {
-        let name = trackName()
+        let dateFormatter = ISO8601DateFormatter()
 
         var gpx = """
         <?xml version="1.0" encoding="UTF-8"?>
-        <gpx version="1.1" creator="GPS Tracker iOS" xmlns="http://www.topografix.com/GPX/1/1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd">
-          <metadata>
-            <name>\(name)</name>
-          </metadata>
+        <gpx xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://www.topografix.com/GPX/1/1" xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd" version="1.1" creator="GPS Tracker iOS">
+        \t<metadata>
+        \t\t<name>\(trackName())</name>
+        \t\t<time>\(dateFormatter.string(from: trackStartDate()))</time>
+        \t</metadata>
 
         """
-
-        let dateFormatter = ISO8601DateFormatter()
-        dateFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
 
         // Export Waypoints (POIs)
         for poi in pois {
             gpx += """
-          <wpt lat="\(poi.coordinate.latitude)" lon="\(poi.coordinate.longitude)">
-            <ele>\(poi.altitude)</ele>
-            <time>\(dateFormatter.string(from: poi.timestamp))</time>
-            <name>\(poi.name)</name>
-            <desc>\(poi.name)</desc>
-          </wpt>
+        \t<wpt lat="\(poi.coordinate.latitude)" lon="\(poi.coordinate.longitude)">
+        \t\t<ele>\(poi.altitude)</ele>
+        \t\t<time>\(dateFormatter.string(from: poi.timestamp))</time>
+        \t\t<name>\(poi.name)</name>
+        \t\t<desc>\(poi.name)</desc>
+        \t</wpt>
 
         """
         }
 
         // Export Track
         gpx += """
-          <trk>
-            <name>\(name)</name>
-            <trkseg>
+        \t<trk>
+        \t\t<name>\(trackName())</name>
+        \t\t<trkseg>
 
         """
 
@@ -221,20 +232,22 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
             let lat = loc.coordinate.latitude
             let lon = loc.coordinate.longitude
             let ele = loc.altitude
+            let speed = max(loc.speed, 0)
             let time = dateFormatter.string(from: loc.timestamp)
 
             gpx += """
-              <trkpt lat="\(lat)" lon="\(lon)">
-                <ele>\(ele)</ele>
-                <time>\(time)</time>
-              </trkpt>
+            \t\t\t<trkpt lat="\(lat)" lon="\(lon)">
+            \t\t\t\t<ele>\(ele)</ele>
+            \t\t\t\t<speed>\(speed)</speed>
+            \t\t\t\t<time>\(time)</time>
+            \t\t\t</trkpt>
 
             """
         }
 
         gpx += """
-            </trkseg>
-          </trk>
+        \t\t</trkseg>
+        \t</trk>
         </gpx>
         """
         return gpx
