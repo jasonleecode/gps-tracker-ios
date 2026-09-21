@@ -151,7 +151,7 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     private var lastExportSignature: (pathCount: Int, poiCount: Int)?
     private var lastExportURL: URL?
 
-    // Writes the GPX to a temp file named with the current date and time.
+    // Writes the GPX to a temp file named like "track 2025-08-17 104411.gpx".
     // Memoized on the data signature so view re-renders don't rewrite the file.
     func exportAsGPXFile() -> URL? {
         if let lastExportURL, let sig = lastExportSignature,
@@ -160,9 +160,7 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
             return lastExportURL
         }
 
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd_HH-mm-ss"
-        let url = URL.temporaryDirectory.appendingPathComponent("Track_\(formatter.string(from: Date())).gpx")
+        let url = URL.temporaryDirectory.appendingPathComponent("\(trackName()).gpx")
 
         do {
             try exportAsGPX().write(to: url, atomically: true, encoding: .utf8)
@@ -174,14 +172,30 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         return url
     }
 
+    private func trackName() -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd HHmmss"
+        return "track \(formatter.string(from: Date()))"
+    }
+
+    // GPX 1.1 in the shape produced by Open GPX Tracker / gpx.studio:
+    // metadata with the track name, waypoints with ele/time/name/desc,
+    // and a track whose points carry only ele and time.
     func exportAsGPX() -> String {
+        let name = trackName()
+
         var gpx = """
         <?xml version="1.0" encoding="UTF-8"?>
-        <gpx version="1.1" creator="GPS Tracker iOS" xmlns="http://www.topografix.com/GPX/1/1" xmlns:gpxtpx="http://www.garmin.com/xmlschemas/TrackPointExtension/v1">
+        <gpx version="1.1" creator="GPS Tracker iOS" xmlns="http://www.topografix.com/GPX/1/1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd">
+          <metadata>
+            <name>\(name)</name>
+          </metadata>
+
         """
-        
+
         let dateFormatter = ISO8601DateFormatter()
-        
+        dateFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+
         // Export Waypoints (POIs)
         for poi in pois {
             gpx += """
@@ -189,37 +203,35 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
             <ele>\(poi.altitude)</ele>
             <time>\(dateFormatter.string(from: poi.timestamp))</time>
             <name>\(poi.name)</name>
+            <desc>\(poi.name)</desc>
           </wpt>
+
         """
         }
-        
+
         // Export Track
         gpx += """
           <trk>
-            <name>Tracked Path</name>
+            <name>\(name)</name>
             <trkseg>
+
         """
-        
+
         for loc in path {
             let lat = loc.coordinate.latitude
             let lon = loc.coordinate.longitude
             let ele = loc.altitude
             let time = dateFormatter.string(from: loc.timestamp)
-            let speed = loc.speed > 0 ? loc.speed : 0
-            
+
             gpx += """
               <trkpt lat="\(lat)" lon="\(lon)">
                 <ele>\(ele)</ele>
                 <time>\(time)</time>
-                <extensions>
-                  <gpxtpx:TrackPointExtension>
-                    <gpxtpx:speed>\(speed)</gpxtpx:speed>
-                  </gpxtpx:TrackPointExtension>
-                </extensions>
               </trkpt>
+
             """
         }
-        
+
         gpx += """
             </trkseg>
           </trk>
