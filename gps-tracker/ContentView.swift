@@ -259,25 +259,39 @@ struct ContentView: View {
                         .font(.headline)
                         .foregroundColor(.white)
                     Spacer()
-                    if locationManager.isRecording {
+                    if let start = locationManager.recordingStartDate {
                         Label("REC", systemImage: "record.circle")
                             .font(.caption.bold())
                             .foregroundColor(.red)
+                        TimelineView(.periodic(from: start, by: 1)) { context in
+                            Text(formatDuration(context.date.timeIntervalSince(start)))
+                                .font(.system(.subheadline, design: .monospaced).bold())
+                                .foregroundColor(.white)
+                        }
+                    } else if locationManager.stoppedDuration > 0 {
+                        Text(formatDuration(locationManager.stoppedDuration))
+                            .font(.system(.subheadline, design: .monospaced).bold())
+                            .foregroundColor(.white.opacity(0.7))
                     }
                 }
 
                 panelDivider
 
-                // Main Stats Grid
-                VStack(spacing: 12) {
-                    HStack(spacing: 15) {
-                        StatBox(label: "Speed", value: String(format: "%.1f km/h", location.effectiveSpeed * 3.6))
-                        StatBox(label: "Altitude", value: String(format: "%.0f m", location.altitude))
+                // Main Stats Grid + heading compass on the right
+                HStack(spacing: 15) {
+                    VStack(spacing: 12) {
+                        HStack(spacing: 15) {
+                            StatBox(label: "Speed", value: String(format: "%.1f km/h", location.effectiveSpeed * 3.6))
+                            StatBox(label: "Altitude", value: String(format: "%.0f m", location.altitude))
+                        }
+                        HStack(spacing: 15) {
+                            StatBox(label: "Distance", value: formatDistance(locationManager.totalDistance))
+                            StatBox(label: "POIs", value: "\(locationManager.pois.count)")
+                        }
                     }
-                    HStack(spacing: 15) {
-                        StatBox(label: "Distance", value: formatDistance(locationManager.totalDistance))
-                        StatBox(label: "POIs", value: "\(locationManager.pois.count)")
-                    }
+                    .frame(maxWidth: .infinity)
+
+                    headingCompass
                 }
 
                 panelDivider
@@ -302,6 +316,22 @@ struct ContentView: View {
                             .foregroundColor(.white.opacity(0.9))
                     }
                 }
+
+                panelDivider
+
+                // GPS signal quality. iOS does not expose satellite counts,
+                // so accuracy is the quality proxy: bars + level on the left,
+                // horizontal/vertical error on the right.
+                HStack {
+                    SignalIndicator(accuracy: location.horizontalAccuracy)
+                    Text(gpsQualityLabel(location.horizontalAccuracy))
+                        .font(.caption.bold())
+                        .foregroundColor(gpsQualityColor(location.horizontalAccuracy))
+                    Spacer()
+                    Text(String(format: "H ±%.0f m  V ±%.0f m", location.horizontalAccuracy, max(location.verticalAccuracy, 0)))
+                        .font(.system(.caption2, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.7))
+                }
             }
             .padding()
             .background(Color.black.opacity(0.72))
@@ -316,12 +346,69 @@ struct ContentView: View {
         }
     }
 
+    // Compass showing the direction of travel: the dial stays north-up and
+    // the arrow rotates to the current GPS course (or compass heading when
+    // stationary). Shows "--" until a direction is available.
+    private var headingCompass: some View {
+        let direction = locationManager.movementDirection
+        return VStack(spacing: 6) {
+            ZStack {
+                Circle()
+                    .stroke(Color.white.opacity(0.25), lineWidth: 1.5)
+                Text("N")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundColor(.red)
+                    .offset(y: -24)
+                Image(systemName: "location.north.fill")
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundColor(direction != nil ? .orange : .gray)
+                    .rotationEffect(.degrees(direction ?? 0))
+            }
+            .frame(width: 58, height: 58)
+
+            Text(direction.map { String(format: "%.0f°", $0) } ?? "--")
+                .font(.system(.caption, design: .rounded).bold())
+                .foregroundColor(.white)
+        }
+    }
+
     private var panelDivider: some View {
         Rectangle()
             .fill(Color.white.opacity(0.15))
             .frame(height: 1)
     }
     
+    // Quality levels keyed to the same accuracy thresholds SignalIndicator
+    // uses for its bars.
+    private func gpsQualityLabel(_ accuracy: Double) -> String {
+        switch accuracy {
+        case ..<5: return "Excellent"
+        case ..<10: return "Good"
+        case ..<30: return "Fair"
+        case ..<100: return "Poor"
+        default: return "Very Poor"
+        }
+    }
+
+    private func gpsQualityColor(_ accuracy: Double) -> Color {
+        switch accuracy {
+        case ..<10: return .green
+        case ..<30: return .orange
+        default: return .red
+        }
+    }
+
+    private func formatDuration(_ interval: TimeInterval) -> String {
+        let total = max(Int(interval), 0)
+        let hours = total / 3600
+        let minutes = (total % 3600) / 60
+        let seconds = total % 60
+        if hours > 0 {
+            return String(format: "%d:%02d:%02d", hours, minutes, seconds)
+        }
+        return String(format: "%02d:%02d", minutes, seconds)
+    }
+
     private func formatDistance(_ meters: Double) -> String {
         if meters < 1000 {
             return String(format: "%.0f m", meters)

@@ -42,6 +42,10 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     @Published var trackSegments: [TrackSegment] = []
     @Published var pois: [PointOfInterest] = []
     @Published var isRecording: Bool = false
+    @Published var recordingStartDate: Date?
+    // Duration of the last recording, kept after Stop so the panel can
+    // still show the final time. Reset by clearAll.
+    @Published var stoppedDuration: TimeInterval = 0
     @Published var totalDistance: Double = 0 // in meters
     @Published var accuracyAuthorization: CLAccuracyAuthorization = .fullAccuracy
 
@@ -76,6 +80,13 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     
     func toggleRecording() {
         isRecording.toggle()
+        if isRecording {
+            recordingStartDate = Date()
+            stoppedDuration = 0
+        } else if let start = recordingStartDate {
+            stoppedDuration = Date().timeIntervalSince(start)
+            recordingStartDate = nil
+        }
     }
     
     func addPOI() {
@@ -94,6 +105,8 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         pois = []
         totalDistance = 0
         isRecording = false
+        recordingStartDate = nil
+        stoppedDuration = 0
     }
 
     // Rebuilds the speed-colored segments shown on the map. Consecutive points
