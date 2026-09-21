@@ -19,6 +19,17 @@ struct TrackSegment {
     var speedFraction: Double
 }
 
+extension CLLocation {
+    // Speed in m/s with stationary noise removed. GPS speed estimates never
+    // quite reach zero when standing still (multipath jitter), so any reading
+    // within its own uncertainty is treated as zero.
+    var effectiveSpeed: Double {
+        guard speed > 0 else { return 0 }
+        if speedAccuracy >= 0, speed < speedAccuracy { return 0 }
+        return speed
+    }
+}
+
 class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     private let locationManager = CLLocationManager()
     
@@ -36,7 +47,7 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
 
     // Direction of travel in degrees from north: GPS course while moving, compass heading when stationary
     var movementDirection: Double? {
-        if let location, location.speed > 1, location.course >= 0 {
+        if let location, location.effectiveSpeed > 1, location.course >= 0 {
             return location.course
         }
         if let heading {
@@ -50,7 +61,11 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         super.init()
         locationManager.delegate = self
         locationManager.desiredAccuracy = kCLLocationAccuracyBest
-        locationManager.distanceFilter = 5
+        // Deliver every fix (~1 Hz). A distance-based filter would stop
+        // updates entirely when stationary (e.g. at a red light), leaving
+        // the UI stuck showing the last rolling speed. Recording applies
+        // its own distance/accuracy filters below.
+        locationManager.distanceFilter = kCLDistanceFilterNone
         locationManager.allowsBackgroundLocationUpdates = true
         locationManager.pausesLocationUpdatesAutomatically = false
         locationManager.showsBackgroundLocationIndicator = true
@@ -90,7 +105,7 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
             trackSegments = []
             return
         }
-        let speeds = path.map { max($0.speed, 0) }
+        let speeds = path.map(\.effectiveSpeed)
         let minSpeed = speeds.min() ?? 0
         let maxSpeed = speeds.max() ?? 0
         let range = maxSpeed - minSpeed
@@ -232,7 +247,7 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
             let lat = loc.coordinate.latitude
             let lon = loc.coordinate.longitude
             let ele = loc.altitude
-            let speed = max(loc.speed, 0)
+            let speed = loc.effectiveSpeed
             let time = dateFormatter.string(from: loc.timestamp)
 
             gpx += """
