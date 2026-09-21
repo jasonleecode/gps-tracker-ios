@@ -271,12 +271,12 @@ struct ContentView: View {
                 // Main Stats Grid
                 VStack(spacing: 12) {
                     HStack(spacing: 15) {
-                        StatBox(label: "Speed", value: String(format: "%.1f km/h", (location.speed > 0 ? location.speed : 0) * 3.6))
+                        StatBox(label: "Speed", value: String(format: "%.1f km/h", location.effectiveSpeed * 3.6))
                         StatBox(label: "Altitude", value: String(format: "%.0f m", location.altitude))
                     }
                     HStack(spacing: 15) {
                         StatBox(label: "Distance", value: formatDistance(locationManager.totalDistance))
-                        StatBox(label: "Points", value: "\(locationManager.path.count)")
+                        StatBox(label: "POIs", value: "\(locationManager.pois.count)")
                     }
                 }
 
