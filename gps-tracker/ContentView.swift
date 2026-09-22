@@ -632,29 +632,51 @@ struct FilesView: View {
     @ObservedObject var locationManager: LocationManager
     @Environment(\.dismiss) var dismiss
     @State private var files: [URL] = []
+    @State private var selected: Set<URL> = []
     @AppStorage("appLanguage") private var appLanguage = "en"
 
     private func t(_ key: String) -> String { L10n.text(key, appLanguage) }
 
     var body: some View {
         NavigationView {
-            Group {
+            VStack(spacing: 0) {
                 if files.isEmpty {
                     ContentUnavailableView(t("No Tracks"), systemImage: "folder", description: Text(t("Tracks are saved here automatically when you stop recording.")))
                 } else {
                     List {
                         ForEach(files, id: \.self) { url in
-                            ShareLink(item: url, preview: SharePreview(url.lastPathComponent, image: Image(systemName: "map"))) {
+                            HStack {
+                                Image(systemName: selected.contains(url) ? "checkmark.circle.fill" : "circle")
+                                    .font(.title3)
+                                    .foregroundColor(selected.contains(url) ? .blue : .secondary)
                                 Label(url.lastPathComponent, systemImage: "doc.text")
+                                Spacer()
                             }
-                        }
-                        .onDelete { indexSet in
-                            for index in indexSet {
-                                locationManager.deleteTrackFile(files[index])
-                            }
-                            files.remove(atOffsets: indexSet)
+                            .contentShape(Rectangle())
+                            .onTapGesture { toggleSelection(url) }
                         }
                     }
+
+                    HStack(spacing: 12) {
+                        ShareLink(items: Array(selected)) {
+                            fileActionLabel(t("Share"), icon: "square.and.arrow.up", color: .blue)
+                        }
+                        .opacity(selected.isEmpty ? 0.4 : 1)
+                        .allowsHitTesting(!selected.isEmpty)
+
+                        Button(action: deleteSelected) {
+                            fileActionLabel(t("Delete"), icon: "trash", color: .red)
+                        }
+                        .disabled(selected.isEmpty)
+                        .opacity(selected.isEmpty ? 0.4 : 1)
+
+                        Button(action: mergeSelected) {
+                            fileActionLabel(t("Merge"), icon: "arrow.triangle.merge", color: .orange)
+                        }
+                        .disabled(selected.count < 2)
+                        .opacity(selected.count < 2 ? 0.4 : 1)
+                    }
+                    .padding()
                 }
             }
             .navigationTitle(t("Tracks"))
@@ -666,6 +688,41 @@ struct FilesView: View {
             }
         }
         .onAppear { files = locationManager.savedTrackFiles() }
+    }
+
+    private func fileActionLabel(_ title: String, icon: String, color: Color) -> some View {
+        VStack(spacing: 4) {
+            Image(systemName: icon)
+            Text(title)
+        }
+        .font(.caption.bold())
+        .foregroundColor(.white)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity)
+        .background(color)
+        .cornerRadius(12)
+    }
+
+    private func toggleSelection(_ url: URL) {
+        if selected.contains(url) {
+            selected.remove(url)
+        } else {
+            selected.insert(url)
+        }
+    }
+
+    private func deleteSelected() {
+        for url in selected {
+            locationManager.deleteTrackFile(url)
+        }
+        files.removeAll { selected.contains($0) }
+        selected.removeAll()
+    }
+
+    private func mergeSelected() {
+        guard locationManager.mergeTrackFiles(Array(selected)) != nil else { return }
+        selected.removeAll()
+        files = locationManager.savedTrackFiles()
     }
 }
 

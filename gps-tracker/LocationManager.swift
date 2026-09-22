@@ -243,6 +243,55 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         try? FileManager.default.removeItem(at: url)
     }
 
+    // Merges several exported GPX files into a new one, keeping each source
+    // track as its own <trkseg> so unrelated tracks are not connected by a
+    // straight line. Returns the new file's URL.
+    func mergeTrackFiles(_ urls: [URL]) -> URL? {
+        guard urls.count > 1 else { return nil }
+        var waypoints = ""
+        var segments = ""
+        for url in urls.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
+            guard let content = try? String(contentsOf: url, encoding: .utf8) else { continue }
+            waypoints += extractBlocks(from: content, tag: "wpt")
+            segments += extractBlocks(from: content, tag: "trkseg")
+        }
+        guard !segments.isEmpty else { return nil }
+
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd HHmmss"
+        let name = "merged \(formatter.string(from: Date()))"
+        let gpx = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <gpx xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://www.topografix.com/GPX/1/1" xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd" version="1.1" creator="GPS Tracker iOS">
+        \t<metadata>
+        \t\t<name>\(name)</name>
+        \t\t<time>\(ISO8601DateFormatter().string(from: Date()))</time>
+        \t</metadata>
+        \(waypoints)\t<trk>
+        \t\t<name>\(name)</name>
+        \(segments)\t</trk>
+        </gpx>
+        """
+
+        let url = Self.tracksDirectory.appendingPathComponent("\(name).gpx")
+        do {
+            try gpx.write(to: url, atomically: true, encoding: .utf8)
+            return url
+        } catch {
+            return nil
+        }
+    }
+
+    // Extracts every <tag ...>...</tag> block from a GPX document.
+    private func extractBlocks(from gpx: String, tag: String) -> String {
+        let pattern = "<\(tag)[^>]*>.*?</\(tag)>"
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators]) else { return "" }
+        let range = NSRange(gpx.startIndex..., in: gpx)
+        return regex.matches(in: gpx, range: range)
+            .compactMap { Range($0.range, in: gpx).map { String(gpx[$0]) + "\n" } }
+            .joined()
+    }
+
     // GPX 1.1 in the shape produced by the "GPS Tracker, Offline Maps" app:
     // metadata with the recording start time, and track points carrying
     // ele, speed, and time as direct child elements.
