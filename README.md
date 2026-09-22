@@ -13,6 +13,8 @@ A modern, real-time GPS tracking application built with SwiftUI and MapKit. This
 - **Odometer**: Cumulative distance calculation for your track with smart noise filtering.
 - **GPS Status Monitor**: Detailed view of signal accuracy, vertical accuracy, course, and signal quality indicator.
 - **GPX Export**: Export your recorded tracks and waypoints as standardized `.gpx` files for use in Google Earth, Strava, or other GIS tools.
+- **Track Library**: Finished tracks are auto-saved when recording stops; browse, share, or delete them from the Files page.
+- **Settings**: Switch between standard and satellite map, and metric/imperial units.
 - **Modern UI**: Clean, glassmorphism design using SwiftUI's `.ultraThinMaterial`.
 
 ## 📸 Screenshots

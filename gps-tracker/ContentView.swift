@@ -10,6 +10,16 @@ struct ContentView: View {
     @StateObject var locationManager = LocationManager()
     @State private var position: MapCameraPosition = .userLocation(fallback: .automatic)
     @State private var showSatelliteStatus = false
+    @State private var showFiles = false
+    @State private var showSettings = false
+    @AppStorage("mapStyle") private var mapStyleSetting = "standard"
+    @AppStorage("appLanguage") private var appLanguage = "en"
+    @AppStorage("useImperialUnits") private var useImperialUnits = false
+    @AppStorage("keepScreenOn") private var keepScreenOn = false
+    // Stats panel can collapse to a compact strip; recording auto-collapses
+    // it after 10 seconds.
+    @State private var isPanelCompact = false
+    @State private var compactTimer: Task<Void, Never>?
     @State private var trackingMode: TrackingMode = .follow
     @State private var cameraHeading: Double = 0
     @State private var cameraDistance: Double = 1200
@@ -18,6 +28,8 @@ struct ContentView: View {
     private var isLandscape: Bool {
         verticalSizeClass == .compact
     }
+
+    private func t(_ key: String) -> String { L10n.text(key, appLanguage) }
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -52,8 +64,12 @@ struct ContentView: View {
                         .tint(.orange)
                 }
             }
+            .mapStyle(mapStyleSetting == "satellite" ? .hybrid : .standard)
             .mapControls {
-                MapUserLocationButton()
+                // Landscape uses the custom userLocationButton in the controls row.
+                if !isLandscape {
+                    MapUserLocationButton()
+                }
                 MapCompass()
                 MapScaleView()
             }
@@ -75,8 +91,32 @@ struct ContentView: View {
         .sheet(isPresented: $showSatelliteStatus) {
             SatelliteStatusView(locationManager: locationManager)
         }
+        .sheet(isPresented: $showFiles) {
+            FilesView(locationManager: locationManager)
+        }
+        .sheet(isPresented: $showSettings) {
+            SettingsView()
+        }
+        .onAppear {
+            UIApplication.shared.isIdleTimerDisabled = keepScreenOn
+        }
+        .onChange(of: keepScreenOn) { _, keepOn in
+            UIApplication.shared.isIdleTimerDisabled = keepOn
+        }
         .onChange(of: locationManager.isRecording) { _, recording in
-            if recording { applyTrackingMode() }
+            if recording {
+                applyTrackingMode()
+                // Start in full mode, then auto-collapse to the compact strip.
+                isPanelCompact = false
+                compactTimer?.cancel()
+                compactTimer = Task {
+                    try? await Task.sleep(for: .seconds(10))
+                    guard !Task.isCancelled else { return }
+                    withAnimation { isPanelCompact = true }
+                }
+            } else {
+                compactTimer?.cancel()
+            }
         }
         .onChange(of: trackingMode) { _, _ in
             if locationManager.isRecording { applyTrackingMode() }
@@ -124,22 +164,29 @@ struct ContentView: View {
 
             Spacer()
 
-            actionButtons
-
             statsCard
+
+            actionButtons
         }
     }
 
-    // Landscape: controls top-left, buttons and stats in a scrollable right-hand column
+    // Landscape: all circular controls and the action buttons live in a
+    // scrollable right-hand column, stats below.
     private var landscapeOverlay: some View {
         HStack(alignment: .top, spacing: 0) {
-            controlButtons
-                .padding(.top, 10)
-
             Spacer()
 
             ScrollView {
                 VStack(spacing: 12) {
+                    HStack(spacing: 10) {
+                        gpsStatusButton
+                        trackingModeButton
+                        userLocationButton
+                        shareButton
+                        deleteButton
+                        Spacer()
+                    }
+
                     actionButtons
                     statsCard
                 }
@@ -150,112 +197,184 @@ struct ContentView: View {
             .frame(maxWidth: 300)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .padding(.top, 10)
     }
 
-    // Unified Top-Left Controls
+    // Portrait-only top-left controls; in landscape all of these move to a
+    // row above the action buttons (see landscapeOverlay).
     private var controlButtons: some View {
         VStack(alignment: .leading, spacing: 10) {
-            // GPS Status Button
-            Button(action: {
-                showSatelliteStatus.toggle()
-            }) {
-                Image(systemName: "antenna.radiowaves.left.and.right")
-                    .font(.title3)
-                    .padding(12)
-                    .background(.ultraThinMaterial)
-                    .clipShape(Circle())
-            }
-
-            // Tracking Mode Toggle (only while recording)
-            if locationManager.isRecording {
-                Button(action: {
-                    trackingMode = trackingMode == .follow ? .free : .follow
-                }) {
-                    Image(systemName: trackingMode == .follow ? "location.north.circle.fill" : "map.circle.fill")
-                        .font(.title3)
-                        .padding(12)
-                        .background(.ultraThinMaterial)
-                        .clipShape(Circle())
-                }
-            }
-
-            // Share/Export Button
-            if !locationManager.path.isEmpty || !locationManager.pois.isEmpty,
-               let gpxURL = locationManager.exportAsGPXFile() {
-                ShareLink(item: gpxURL, preview: SharePreview(gpxURL.lastPathComponent, image: Image(systemName: "map"))) {
-                    Image(systemName: "square.and.arrow.up")
-                        .font(.title3)
-                        .padding(12)
-                        .background(.ultraThinMaterial)
-                        .clipShape(Circle())
-                }
-            }
-
-            // Delete/Clear Button
-            if !locationManager.path.isEmpty || !locationManager.pois.isEmpty {
-                Button(role: .destructive, action: {
-                    locationManager.clearAll()
-                }) {
-                    Image(systemName: "trash")
-                        .font(.title3)
-                        .padding(12)
-                        .background(.ultraThinMaterial)
-                        .clipShape(Circle())
-                }
-            }
+            gpsStatusButton
+            trackingModeButton
+            shareButton
+            deleteButton
         }
         .padding(.leading)
     }
 
-    // Action Buttons (Start/Stop & POI)
+    private var gpsStatusButton: some View {
+        Button(action: {
+            showSatelliteStatus.toggle()
+        }) {
+            circleButtonLabel("antenna.radiowaves.left.and.right")
+        }
+    }
+
+    @ViewBuilder
+    private var trackingModeButton: some View {
+        // Tracking Mode Toggle (only while recording)
+        if locationManager.isRecording {
+            Button(action: {
+                trackingMode = trackingMode == .follow ? .free : .follow
+            }) {
+                circleButtonLabel(trackingMode == .follow ? "location.north.circle.fill" : "map.circle.fill")
+            }
+        }
+    }
+
+    // Re-centers the map on the user. A custom button is used instead of
+    // MapUserLocationButton because the system control's position is fixed.
+    private var userLocationButton: some View {
+        Button(action: {
+            position = .userLocation(fallback: .automatic)
+        }) {
+            circleButtonLabel("location.fill")
+        }
+    }
+
+    @ViewBuilder
+    private var shareButton: some View {
+        if !locationManager.path.isEmpty || !locationManager.pois.isEmpty,
+           let gpxURL = locationManager.exportAsGPXFile() {
+            ShareLink(item: gpxURL, preview: SharePreview(gpxURL.lastPathComponent, image: Image(systemName: "map"))) {
+                circleButtonLabel("square.and.arrow.up")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var deleteButton: some View {
+        if !locationManager.path.isEmpty || !locationManager.pois.isEmpty {
+            Button(role: .destructive, action: {
+                locationManager.clearAll()
+            }) {
+                circleButtonLabel("trash")
+            }
+        }
+    }
+
+    private func circleButtonLabel(_ icon: String) -> some View {
+        Image(systemName: icon)
+            .font(.title3)
+            .padding(12)
+            .background(.ultraThinMaterial)
+            .clipShape(Circle())
+    }
+
+    // Action Buttons (Start/Stop, POI, Files & Setting)
     private var actionButtons: some View {
-        HStack(spacing: isLandscape ? 10 : 20) {
+        HStack(spacing: isLandscape ? 8 : 12) {
             Button(action: {
                 locationManager.toggleRecording()
             }) {
-                HStack {
+                VStack(spacing: 4) {
                     Image(systemName: locationManager.isRecording ? "stop.circle.fill" : "play.circle.fill")
-                    Text(locationManager.isRecording ? "Stop" : "Start")
+                    Text(locationManager.isRecording ? t("Stop") : t("Start"))
                 }
-                .font(.headline)
+                .font(.caption.bold())
                 .foregroundColor(.white)
-                .padding(.vertical, 12)
+                .padding(.vertical, 10)
                 .frame(maxWidth: .infinity)
                 .background(locationManager.isRecording ? Color.red : Color.green)
                 .cornerRadius(12)
             }
 
-            Button(action: {
+            secondaryActionButton(title: t("POI"), icon: "mappin.and.ellipse", color: .orange) {
                 locationManager.addPOI()
-            }) {
-                HStack {
-                    Image(systemName: "mappin.and.ellipse")
-                    Text("POI")
-                }
-                .font(.headline)
-                .foregroundColor(.primary)
-                .padding(.vertical, 12)
-                .frame(maxWidth: .infinity)
-                .background(.ultraThinMaterial)
-                .cornerRadius(12)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(Color.primary.opacity(0.1), lineWidth: 1)
-                )
+            }
+            secondaryActionButton(title: t("Files"), icon: "folder", color: .blue) {
+                showFiles = true
+            }
+            secondaryActionButton(title: t("Setting"), icon: "gearshape", color: .gray) {
+                showSettings = true
             }
         }
         .padding(.horizontal, isLandscape ? 0 : nil)
+        .padding(.bottom, isLandscape ? 0 : 8)
     }
 
-    // Stats Card — dark high-contrast panel, readable in bright outdoor light
+    private func secondaryActionButton(title: String, icon: String, color: Color, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 4) {
+                Image(systemName: icon)
+                Text(title)
+            }
+            .font(.caption.bold())
+            .foregroundColor(.white)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity)
+            .background(color)
+            .cornerRadius(12)
+        }
+    }
+
+    // Stats panel: full card or compact strip. Tap toggles between the two.
     @ViewBuilder
     private var statsCard: some View {
         if let location = locationManager.location {
-            VStack(alignment: .leading, spacing: 10) {
+            if isPanelCompact {
+                compactStatsCard(location: location)
+            } else {
+                fullStatsCard(location: location)
+            }
+        }
+    }
+
+    // Compact strip: speed, altitude and distance only.
+    private func compactStatsCard(location: CLLocation) -> some View {
+        HStack(spacing: 0) {
+            compactStat(label: t("Speed"), value: formatSpeed(location.effectiveSpeed))
+            compactStat(label: t("Altitude"), value: formatAltitude(location.altitude))
+            compactStat(label: t("Distance"), value: formatDistance(locationManager.totalDistance))
+        }
+        .padding(.vertical, 10)
+        .padding(.horizontal, 8)
+        .background(Color.black.opacity(0.72))
+        .cornerRadius(15)
+        .overlay(
+            RoundedRectangle(cornerRadius: 15)
+                .stroke(Color.white.opacity(0.15), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.3), radius: 8)
+        .padding(.horizontal, isLandscape ? 0 : nil)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            withAnimation { isPanelCompact = false }
+        }
+    }
+
+    private func compactStat(label: String, value: String) -> some View {
+        VStack(spacing: 2) {
+            Text(value)
+                .font(.system(.callout, design: .rounded).bold())
+                .foregroundColor(.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+            Text(label)
+                .font(.caption2)
+                .foregroundColor(.white.opacity(0.55))
+                .textCase(.uppercase)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    // Full stats card — dark high-contrast panel, readable in bright outdoor light
+    private func fullStatsCard(location: CLLocation) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
                 HStack {
                     Image(systemName: "location.fill")
                         .foregroundColor(.orange)
-                    Text("Current Position")
+                    Text(t("Current Position"))
                         .font(.headline)
                         .foregroundColor(.white)
                     Spacer()
@@ -281,12 +400,12 @@ struct ContentView: View {
                 HStack(spacing: 15) {
                     VStack(spacing: 12) {
                         HStack(spacing: 15) {
-                            StatBox(label: "Speed", value: String(format: "%.1f km/h", location.effectiveSpeed * 3.6))
-                            StatBox(label: "Altitude", value: String(format: "%.0f m", location.altitude))
+                            StatBox(label: t("Speed"), value: formatSpeed(location.effectiveSpeed))
+                            StatBox(label: t("Altitude"), value: formatAltitude(location.altitude))
                         }
                         HStack(spacing: 15) {
-                            StatBox(label: "Distance", value: formatDistance(locationManager.totalDistance))
-                            StatBox(label: "POIs", value: "\(locationManager.pois.count)")
+                            StatBox(label: t("Distance"), value: formatDistance(locationManager.totalDistance))
+                            StatBox(label: t("POIs"), value: "\(locationManager.pois.count)")
                         }
                     }
                     .frame(maxWidth: .infinity)
@@ -299,7 +418,7 @@ struct ContentView: View {
                 // Coordinates
                 HStack {
                     VStack(alignment: .leading) {
-                        Text("Latitude")
+                        Text(t("Latitude"))
                             .font(.caption2)
                             .foregroundColor(.white.opacity(0.55))
                         Text(String(format: "%.6f°", location.coordinate.latitude))
@@ -308,7 +427,7 @@ struct ContentView: View {
                     }
                     Spacer()
                     VStack(alignment: .trailing) {
-                        Text("Longitude")
+                        Text(t("Longitude"))
                             .font(.caption2)
                             .foregroundColor(.white.opacity(0.55))
                         Text(String(format: "%.6f°", location.coordinate.longitude))
@@ -324,7 +443,7 @@ struct ContentView: View {
                 // horizontal/vertical error on the right.
                 HStack {
                     SignalIndicator(accuracy: location.horizontalAccuracy)
-                    Text(gpsQualityLabel(location.horizontalAccuracy))
+                    Text(t(gpsQualityLabel(location.horizontalAccuracy)))
                         .font(.caption.bold())
                         .foregroundColor(gpsQualityColor(location.horizontalAccuracy))
                     Spacer()
@@ -342,8 +461,10 @@ struct ContentView: View {
             )
             .shadow(color: .black.opacity(0.3), radius: 8)
             .padding(.horizontal, isLandscape ? 0 : nil)
-            .padding(.bottom, isLandscape ? 0 : 30)
-        }
+            .contentShape(Rectangle())
+            .onTapGesture {
+                withAnimation { isPanelCompact = true }
+            }
     }
 
     // Compass showing the direction of travel: the dial stays north-up and
@@ -409,7 +530,27 @@ struct ContentView: View {
         return String(format: "%02d:%02d", minutes, seconds)
     }
 
+    private func formatSpeed(_ metersPerSecond: Double) -> String {
+        if useImperialUnits {
+            return String(format: "%.1f mph", metersPerSecond * 2.23694)
+        }
+        return String(format: "%.1f km/h", metersPerSecond * 3.6)
+    }
+
+    private func formatAltitude(_ meters: Double) -> String {
+        if useImperialUnits {
+            return String(format: "%.0f ft", meters * 3.28084)
+        }
+        return String(format: "%.0f m", meters)
+    }
+
     private func formatDistance(_ meters: Double) -> String {
+        if useImperialUnits {
+            if meters < 1609.344 {
+                return String(format: "%.0f ft", meters * 3.28084)
+            }
+            return String(format: "%.2f mi", meters / 1609.344)
+        }
         if meters < 1000 {
             return String(format: "%.0f m", meters)
         } else {
@@ -421,6 +562,9 @@ struct ContentView: View {
 struct SatelliteStatusView: View {
     @ObservedObject var locationManager: LocationManager
     @Environment(\.dismiss) var dismiss
+    @AppStorage("appLanguage") private var appLanguage = "en"
+
+    private func t(_ key: String) -> String { L10n.text(key, appLanguage) }
 
     private var location: CLLocation? { locationManager.location }
 
@@ -429,48 +573,48 @@ struct SatelliteStatusView: View {
             List {
                 if locationManager.accuracyAuthorization == .reducedAccuracy {
                     Section {
-                        Label("Precise Location is off — accuracy is limited to ~1–2 km.", systemImage: "exclamationmark.triangle.fill")
+                        Label(t("Precise Location is off — accuracy is limited to ~1–2 km."), systemImage: "exclamationmark.triangle.fill")
                             .foregroundColor(.orange)
-                        Button("Enable Precise Location") {
+                        Button(t("Enable Precise Location")) {
                             locationManager.requestTemporaryFullAccuracy()
                         }
                     }
                 }
 
                 if let location = location {
-                    Section("Signal Quality") {
+                    Section(t("Signal Quality")) {
                         HStack {
-                            Text("Accuracy")
+                            Text(t("Accuracy"))
                             Spacer()
                             Text(String(format: "±%.1f m", location.horizontalAccuracy))
                                 .foregroundColor(accuracyColor(location.horizontalAccuracy))
                         }
                         
                         HStack {
-                            Text("Signal Level")
+                            Text(t("Signal Level"))
                             Spacer()
                             SignalIndicator(accuracy: location.horizontalAccuracy)
                         }
                     }
                     
-                    Section("Detailed Metadata") {
-                        LabeledContent("Vertical Accuracy", value: String(format: "±%.1f m", location.verticalAccuracy))
-                        LabeledContent("Course", value: location.course >= 0 ? String(format: "%.1f°", location.course) : "--")
-                        LabeledContent("Timestamp", value: location.timestamp.formatted(date: .omitted, time: .standard))
+                    Section(t("Detailed Metadata")) {
+                        LabeledContent(t("Vertical Accuracy"), value: String(format: "±%.1f m", location.verticalAccuracy))
+                        LabeledContent(t("Course"), value: location.course >= 0 ? String(format: "%.1f°", location.course) : "--")
+                        LabeledContent(t("Timestamp"), value: location.timestamp.formatted(date: .omitted, time: .standard))
                         
                         if #available(iOS 15.0, *) {
-                            LabeledContent("Source", value: location.sourceInformation?.isSimulatedBySoftware == true ? "Simulated" : "GPS/Hardware")
+                            LabeledContent(t("Source"), value: location.sourceInformation?.isSimulatedBySoftware == true ? t("Simulated") : t("GPS/Hardware"))
                         }
                     }
                 } else {
-                    Text("No GPS data available")
+                    Text(t("No GPS data available"))
                 }
             }
-            .navigationTitle("GPS Status")
+            .navigationTitle(t("GPS Status"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") { dismiss() }
+                    Button(t("Done")) { dismiss() }
                 }
             }
         }
@@ -481,6 +625,90 @@ struct SatelliteStatusView: View {
         if accuracy < 10 { return .green }
         if accuracy < 30 { return .orange }
         return .red
+    }
+}
+
+struct FilesView: View {
+    @ObservedObject var locationManager: LocationManager
+    @Environment(\.dismiss) var dismiss
+    @State private var files: [URL] = []
+    @AppStorage("appLanguage") private var appLanguage = "en"
+
+    private func t(_ key: String) -> String { L10n.text(key, appLanguage) }
+
+    var body: some View {
+        NavigationView {
+            Group {
+                if files.isEmpty {
+                    ContentUnavailableView(t("No Tracks"), systemImage: "folder", description: Text(t("Tracks are saved here automatically when you stop recording.")))
+                } else {
+                    List {
+                        ForEach(files, id: \.self) { url in
+                            ShareLink(item: url, preview: SharePreview(url.lastPathComponent, image: Image(systemName: "map"))) {
+                                Label(url.lastPathComponent, systemImage: "doc.text")
+                            }
+                        }
+                        .onDelete { indexSet in
+                            for index in indexSet {
+                                locationManager.deleteTrackFile(files[index])
+                            }
+                            files.remove(atOffsets: indexSet)
+                        }
+                    }
+                }
+            }
+            .navigationTitle(t("Tracks"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button(t("Done")) { dismiss() }
+                }
+            }
+        }
+        .onAppear { files = locationManager.savedTrackFiles() }
+    }
+}
+
+struct SettingsView: View {
+    @AppStorage("mapStyle") private var mapStyle = "standard"
+    @AppStorage("useImperialUnits") private var useImperialUnits = false
+    @AppStorage("keepScreenOn") private var keepScreenOn = false
+    @AppStorage("appLanguage") private var appLanguage = "en"
+    @Environment(\.dismiss) var dismiss
+
+    private func t(_ key: String) -> String { L10n.text(key, appLanguage) }
+
+    var body: some View {
+        NavigationView {
+            Form {
+                Section(t("Map")) {
+                    Picker(t("Map Type"), selection: $mapStyle) {
+                        Text(t("Standard")).tag("standard")
+                        Text(t("Satellite")).tag("satellite")
+                    }
+                }
+                Section(t("Units")) {
+                    Toggle(t("Imperial (mi, mph)"), isOn: $useImperialUnits)
+                }
+                Section(t("Screen")) {
+                    Toggle(t("Keep Screen On"), isOn: $keepScreenOn)
+                }
+                Section(t("Language")) {
+                    Picker(t("Language"), selection: $appLanguage) {
+                        Text("English").tag("en")
+                        Text("中文").tag("zh")
+                    }
+                }
+            }
+            .navigationTitle(t("Settings"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button(t("Done")) { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium])
     }
 }
 
