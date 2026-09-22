@@ -86,6 +86,7 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         } else if let start = recordingStartDate {
             stoppedDuration = Date().timeIntervalSince(start)
             recordingStartDate = nil
+            saveTrackToDocuments()
         }
     }
     
@@ -217,6 +218,29 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd HHmmss"
         return "track \(formatter.string(from: trackStartDate()))"
+    }
+
+    private static var tracksDirectory: URL {
+        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+    }
+
+    // Auto-saves the finished track to the Documents directory so it shows
+    // up in the Files list. Skips recordings with no points.
+    private func saveTrackToDocuments() {
+        guard !path.isEmpty else { return }
+        let url = Self.tracksDirectory.appendingPathComponent("\(trackFileName()).gpx")
+        try? exportAsGPX().write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    // Saved tracks, newest first (file names start with the recording date).
+    func savedTrackFiles() -> [URL] {
+        let urls = (try? FileManager.default.contentsOfDirectory(at: Self.tracksDirectory, includingPropertiesForKeys: nil)) ?? []
+        return urls.filter { $0.pathExtension == "gpx" }
+            .sorted { $0.lastPathComponent > $1.lastPathComponent }
+    }
+
+    func deleteTrackFile(_ url: URL) {
+        try? FileManager.default.removeItem(at: url)
     }
 
     // GPX 1.1 in the shape produced by the "GPS Tracker, Offline Maps" app:
